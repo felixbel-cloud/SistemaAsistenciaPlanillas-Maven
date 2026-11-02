@@ -2,5 +2,3 @@ target/
 .vscode/settings.json
 *.class
 bin/
-*.rar
-*.log

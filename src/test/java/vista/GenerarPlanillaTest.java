@@ -33,4 +33,28 @@ class GenerarPlanillaTest {
         assertTrue(existeConsulta,
                 "Debe abrir la ventana de consulta de planillas después de generar la planilla.");
     }
+
+    @Test
+    void abrirConsultaPlanillaConPeriodo_debeCrearVentanaVisible() {
+        Usuario usuario = new Usuario();
+        usuario.setIdUsuario(1);
+        usuario.setNombreUsuario("admin");
+
+        GenerarPlanilla ventanaOrigen = new GenerarPlanilla(usuario);
+        ventanaOrigen.setVisible(false);
+
+        ventanaOrigen.abrirConsultaPlanilla("2026-10");
+
+        boolean existeConsulta = Arrays.stream(Window.getWindows())
+                .anyMatch(window -> window instanceof ConsultaPlanilla);
+
+        for (Window window : Window.getWindows()) {
+            if (window instanceof ConsultaPlanilla || window == ventanaOrigen) {
+                window.dispose();
+            }
+        }
+
+        assertTrue(existeConsulta,
+                "Debe abrir la ventana de consulta de planillas con periodo.");
+    }
 }

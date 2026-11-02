@@ -10,10 +10,8 @@ import java.util.List;
 
 public class PlanillaDAO {
 
-    private Connection conexion;
 
     public PlanillaDAO() {
-        this.conexion = ConexionDB.getConexion();
     }
 
     // Crear planilla
@@ -22,7 +20,7 @@ public class PlanillaDAO {
                 + "VALUES (?, ?, ?, ?, ?)";
         int idGenerado = -1;
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, planilla.getPeriodo());
             ps.setDate(2, new java.sql.Date(planilla.getFechaGeneracion().getTime()));
             ps.setDouble(3, planilla.getTotalPlanilla());
@@ -52,7 +50,7 @@ public class PlanillaDAO {
                 + "minutos_tardanza, descuento_tardanzas, total_ingresos, total_descuentos, sueldo_neto) "
                 + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, detalle.getIdPlanilla());
             ps.setInt(2, detalle.getIdPersonal());
             ps.setInt(3, detalle.getDiasTrabajados());
@@ -77,7 +75,7 @@ public class PlanillaDAO {
     public boolean existePlanillaPeriodo(String periodo) {
         String sql = "SELECT COUNT(*) FROM planilla WHERE periodo = ?";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setString(1, periodo);
 
             try (ResultSet rs = ps.executeQuery()) {
@@ -97,7 +95,7 @@ public class PlanillaDAO {
         List<Planilla> listaPlanillas = new ArrayList<>();
         String sql = "SELECT * FROM planilla ORDER BY fecha_generacion DESC";
 
-        try (Statement stmt = conexion.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
+        try (Statement stmt = ConexionDB.obtener().createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
 
             while (rs.next()) {
                 Planilla planilla = new Planilla();
@@ -124,7 +122,7 @@ public class PlanillaDAO {
                 + "JOIN personal p ON dp.id_personal = p.id_personal "
                 + "WHERE dp.id_planilla = ?";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPlanilla);
 
             try (ResultSet rs = ps.executeQuery()) {
@@ -163,7 +161,7 @@ public class PlanillaDAO {
     public boolean actualizarEstadoPlanilla(int idPlanilla, String estado) {
         String sql = "UPDATE planilla SET estado = ? WHERE id_planilla = ?";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setString(1, estado);
             ps.setInt(2, idPlanilla);
 
@@ -179,7 +177,7 @@ public class PlanillaDAO {
         Planilla planilla = null;
         String sql = "SELECT * FROM planilla WHERE id_planilla = ?";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPlanilla);
 
             try (ResultSet rs = ps.executeQuery()) {
@@ -203,12 +201,51 @@ public class PlanillaDAO {
     public boolean actualizarTotalPlanilla(int idPlanilla, double total) {
         String sql = "UPDATE planilla SET total_planilla = ? WHERE id_planilla = ?";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setDouble(1, total);
             ps.setInt(2, idPlanilla);
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
             System.err.println("Error al actualizar total de planilla: " + e.getMessage());
+            return false;
+        }
+    }
+
+    // Obtener planilla por periodo (YYYY-MM)
+    public Planilla obtenerPlanillaPorPeriodo(String periodo) {
+        Planilla planilla = null;
+        String sql = "SELECT * FROM planilla WHERE periodo = ?";
+
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
+            ps.setString(1, periodo);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    planilla = new Planilla();
+                    planilla.setIdPlanilla(rs.getInt("id_planilla"));
+                    planilla.setPeriodo(rs.getString("periodo"));
+                    planilla.setFechaGeneracion(rs.getDate("fecha_generacion"));
+                    planilla.setTotalPlanilla(rs.getDouble("total_planilla"));
+                    planilla.setEstado(rs.getString("estado"));
+                    planilla.setGeneradoPor(rs.getInt("generado_por"));
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Error al obtener planilla por periodo: " + e.getMessage());
+        }
+
+        return planilla;
+    }
+
+    // Eliminar planilla (y sus detalles en cascada)
+    public boolean eliminarPlanilla(int idPlanilla) {
+        String sql = "DELETE FROM planilla WHERE id_planilla = ?";
+
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
+            ps.setInt(1, idPlanilla);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.err.println("Error al eliminar planilla: " + e.getMessage());
             return false;
         }
     }

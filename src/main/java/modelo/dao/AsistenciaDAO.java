@@ -15,10 +15,8 @@ import modelo.conexion.ConexionDB;
 import modelo.entidades.Asistencia;
 
 public class AsistenciaDAO {
-    private Connection conexion;
     
     public AsistenciaDAO() {
-        this.conexion = ConexionDB.getConexion();
     }
     
     // Registrar entrada (opcionalmente asociada a un bloque de horario_personal)
@@ -26,7 +24,7 @@ public class AsistenciaDAO {
         String sql = "INSERT INTO asistencia (id_personal, id_horario, fecha, hora_entrada, "
                     + "minutos_tardanza, estado, observaciones) VALUES (?, ?, ?, ?, ?, ?, ?)";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, asistencia.getIdPersonal());
             if (asistencia.getIdHorario() != null) {
                 ps.setInt(2, asistencia.getIdHorario());
@@ -49,9 +47,9 @@ public class AsistenciaDAO {
     // Registrar salida, incluyendo minutos extras y horas trabajadas ya calculadas
     public boolean registrarSalida(int idAsistencia, Time horaSalida, int minutosExtras, double horasTrabajadas) {
         String sql = "UPDATE asistencia SET hora_salida = ?, minutos_extras = ?, horas_trabajadas = ? "
-                    + "WHERE id_asistencia = ?";
+                    + "WHERE id_asistencia = ? AND hora_salida IS NULL";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setTime(1, horaSalida);
             ps.setInt(2, minutosExtras);
             ps.setDouble(3, horasTrabajadas);
@@ -69,9 +67,10 @@ public class AsistenciaDAO {
     public boolean registrarSalidaPorPersonalFecha(int idPersonal, Date fecha, Time horaSalida,
                                                  int minutosExtras, double horasTrabajadas) {
         String sql = "UPDATE asistencia SET hora_salida = ?, minutos_extras = ?, horas_trabajadas = ? "
-                    + "WHERE id_personal = ? AND fecha = ? AND hora_salida IS NULL";
+                    + "WHERE id_personal = ? AND fecha = ? AND hora_entrada IS NOT NULL "
+                    + "AND hora_salida IS NULL ORDER BY hora_entrada DESC LIMIT 1";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setTime(1, horaSalida);
             ps.setInt(2, minutosExtras);
             ps.setDouble(3, horasTrabajadas);
@@ -90,7 +89,7 @@ public class AsistenciaDAO {
         String sql = "INSERT IGNORE INTO asistencia (id_personal, id_horario, fecha, estado, observaciones) "
                     + "VALUES (?, ?, ?, 'AUSENTE', ?)";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
             ps.setInt(2, idHorario);
             ps.setDate(3, new java.sql.Date(fecha.getTime()));
@@ -108,7 +107,7 @@ public class AsistenciaDAO {
         String sql = "SELECT COUNT(*) FROM asistencia WHERE id_personal = ? AND fecha = ? "
                     + (idHorario != null ? "AND id_horario = ?" : "AND id_horario IS NULL");
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
             ps.setDate(2, new java.sql.Date(fecha.getTime()));
             if (idHorario != null) {
@@ -131,7 +130,7 @@ public class AsistenciaDAO {
     public boolean existeRegistroHoy(int idPersonal, Date fecha) {
         String sql = "SELECT COUNT(*) FROM asistencia WHERE id_personal = ? AND fecha = ?";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
             ps.setDate(2, new java.sql.Date(fecha.getTime()));
 
@@ -151,9 +150,10 @@ public class AsistenciaDAO {
     public Asistencia obtenerBloqueAbierto(int idPersonal, Date fecha) {
         Asistencia asistencia = null;
         String sql = "SELECT * FROM asistencia WHERE id_personal = ? AND fecha = ? "
-                    + "AND hora_salida IS NULL ORDER BY hora_entrada DESC LIMIT 1";
+                    + "AND hora_entrada IS NOT NULL AND hora_salida IS NULL "
+                    + "ORDER BY hora_entrada DESC LIMIT 1";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
             ps.setDate(2, new java.sql.Date(fecha.getTime()));
             
@@ -169,14 +169,15 @@ public class AsistenciaDAO {
         return asistencia;
     }
 
-    // Fallback robusto: si por alguna razón no se encontró la asistencia abierta del día,
-    // toma la última asistencia pendiente de salida registrada por ese personal.
+    // Última asistencia con entrada y sin salida del personal (de cualquier fecha).
+    // Ya no se usa para registrar salidas: solo sirve para consultas/diagnóstico.
     public Asistencia obtenerUltimaAsistenciaAbierta(int idPersonal) {
         Asistencia asistencia = null;
-        String sql = "SELECT * FROM asistencia WHERE id_personal = ? AND hora_salida IS NULL "
+        String sql = "SELECT * FROM asistencia WHERE id_personal = ? "
+                    + "AND hora_entrada IS NOT NULL AND hora_salida IS NULL "
                     + "ORDER BY fecha DESC, hora_entrada DESC LIMIT 1";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
 
             try (ResultSet rs = ps.executeQuery()) {
@@ -196,7 +197,7 @@ public class AsistenciaDAO {
         Asistencia asistencia = null;
         String sql = "SELECT * FROM asistencia WHERE id_personal = ? AND fecha = ? ORDER BY hora_entrada DESC LIMIT 1";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
             ps.setDate(2, new java.sql.Date(fecha.getTime()));
 
@@ -217,7 +218,7 @@ public class AsistenciaDAO {
         List<Asistencia> lista = new ArrayList<>();
         String sql = "SELECT * FROM asistencia WHERE id_personal = ? AND fecha = ? ORDER BY hora_entrada";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
             ps.setDate(2, new java.sql.Date(fecha.getTime()));
 
@@ -238,7 +239,7 @@ public class AsistenciaDAO {
         List<Asistencia> listaAsistencias = new ArrayList<>();
         String sql = "SELECT * FROM asistencia WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC, hora_entrada";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setDate(1, new java.sql.Date(fechaInicio.getTime()));
             ps.setDate(2, new java.sql.Date(fechaFin.getTime()));
             
@@ -259,7 +260,7 @@ public class AsistenciaDAO {
         List<Asistencia> listaAsistencias = new ArrayList<>();
         String sql = "SELECT * FROM asistencia WHERE id_personal = ? AND DATE_FORMAT(fecha, '%Y-%m') = ? ORDER BY fecha, hora_entrada";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
             ps.setString(2, periodo);
             
@@ -279,7 +280,7 @@ public class AsistenciaDAO {
     public boolean actualizarTardanza(int idAsistencia, int minutosTardanza) {
         String sql = "UPDATE asistencia SET minutos_tardanza = ? WHERE id_asistencia = ?";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, minutosTardanza);
             ps.setInt(2, idAsistencia);
             
@@ -305,5 +306,49 @@ public class AsistenciaDAO {
         asistencia.setEstado(rs.getString("estado"));
         asistencia.setObservaciones(rs.getString("observaciones"));
         return asistencia;
+    }
+
+    // Cuenta los registros cuyas observaciones empiezan con el prefijo indicado
+    public int contarPorPrefijoObservacion(String prefijo) {
+        String sql = "SELECT COUNT(*) FROM asistencia WHERE LEFT(observaciones, ?) = ?";
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
+            ps.setInt(1, prefijo.length());
+            ps.setString(2, prefijo);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (SQLException e) {
+            System.err.println("Error al contar registros: " + e.getMessage());
+            return 0;
+        }
+    }
+
+    // Elimina los registros cuyas observaciones empiezan con el prefijo indicado
+    public int eliminarPorPrefijoObservacion(String prefijo) {
+        String sql = "DELETE FROM asistencia WHERE LEFT(observaciones, ?) = ?";
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
+            ps.setInt(1, prefijo.length());
+            ps.setString(2, prefijo);
+            return ps.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("Error al eliminar registros: " + e.getMessage());
+            return 0;
+        }
+    }
+
+    // Cantidad de registros simulados dentro de un periodo (AAAA-MM)
+    public int contarSimuladosEnPeriodo(String periodo, String prefijo) {
+        String sql = "SELECT COUNT(*) FROM asistencia WHERE DATE_FORMAT(fecha, '%Y-%m') = ? AND LEFT(observaciones, ?) = ?";
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
+            ps.setString(1, periodo);
+            ps.setInt(2, prefijo.length());
+            ps.setString(3, prefijo);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (SQLException e) {
+            System.err.println("Error al contar registros simulados: " + e.getMessage());
+            return 0;
+        }
     }
 }

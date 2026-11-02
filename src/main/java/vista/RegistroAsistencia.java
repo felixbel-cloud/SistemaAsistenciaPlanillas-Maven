@@ -1,8 +1,14 @@
 // vista/RegistroAsistencia.java
 package vista;
 
+import com.toedter.calendar.JDateChooser;
 import controlador.ControladorAsistencia;
 import modelo.entidades.Personal;
+import modelo.entidades.Usuario;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -38,8 +44,24 @@ public class RegistroAsistencia extends JFrame {
     private JButton btnCerrar;
     
     private Personal personalSeleccionado;
+
+    // Modo simulación (solo administrador): registrar con otra fecha y hora
+    private static final int ROL_ADMINISTRADOR = 1;
+    private static final Color COLOR_TITULO = new Color(41, 128, 185);
+    private static final Color COLOR_SIMULACION = new Color(243, 156, 18);
+    private final boolean permiteSimulacion;
+    private JPanel panelSimulacion;
+    private JCheckBox chkSimular;
+    private JDateChooser fechaSimulada;
+    private JSpinner horaSimulada;
+    private JButton btnBorrarSimulados;
     
     public RegistroAsistencia() {
+        this(null);
+    }
+
+    public RegistroAsistencia(Usuario usuario) {
+        this.permiteSimulacion = usuario != null && usuario.getIdRol() == ROL_ADMINISTRADOR;
         controlador = new ControladorAsistencia();
         inicializarComponentes();
         configurarVentana();
@@ -188,6 +210,9 @@ public class RegistroAsistencia extends JFrame {
         panelCentro.setBackground(Color.WHITE);
         panelCentro.add(panelFormulario, BorderLayout.NORTH);
         panelCentro.add(panelInformacion, BorderLayout.CENTER);
+        if (permiteSimulacion) {
+            panelCentro.add(crearPanelSimulacion(), BorderLayout.SOUTH);
+        }
         
         panelPrincipal.add(panelSuperior, BorderLayout.NORTH);
         panelPrincipal.add(panelCentro, BorderLayout.CENTER);
@@ -247,6 +272,132 @@ public class RegistroAsistencia extends JFrame {
         });
     }
     
+    private JPanel crearPanelSimulacion() {
+        panelSimulacion = new JPanel(new GridBagLayout());
+        panelSimulacion.setBackground(Color.WHITE);
+        panelSimulacion.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(COLOR_SIMULACION),
+                "Modo simulación (solo administrador)",
+                0, 0,
+                new Font("Segoe UI", Font.BOLD, 14),
+                new Color(156, 100, 12)
+            ),
+            BorderFactory.createEmptyBorder(6, 10, 8, 10)
+        ));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 6, 4, 6);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        chkSimular = new JCheckBox("Registrar con otra fecha y hora (para demostraciones)");
+        chkSimular.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        chkSimular.setBackground(Color.WHITE);
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 5;
+        panelSimulacion.add(chkSimular, gbc);
+
+        JLabel lblFecha = new JLabel("Fecha:");
+        lblFecha.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        gbc.gridy = 1; gbc.gridwidth = 1; gbc.gridx = 0;
+        panelSimulacion.add(lblFecha, gbc);
+
+        fechaSimulada = new JDateChooser(new java.util.Date());
+        fechaSimulada.setDateFormatString("dd/MM/yyyy");
+        fechaSimulada.setPreferredSize(new Dimension(140, 28));
+        gbc.gridx = 1;
+        panelSimulacion.add(fechaSimulada, gbc);
+
+        JLabel lblHora = new JLabel("Hora:");
+        lblHora.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        gbc.gridx = 2;
+        panelSimulacion.add(lblHora, gbc);
+
+        java.util.Calendar ocho = java.util.Calendar.getInstance();
+        ocho.set(java.util.Calendar.HOUR_OF_DAY, 8);
+        ocho.set(java.util.Calendar.MINUTE, 0);
+        horaSimulada = new JSpinner(new SpinnerDateModel(ocho.getTime(), null, null, java.util.Calendar.MINUTE));
+        horaSimulada.setEditor(new JSpinner.DateEditor(horaSimulada, "HH:mm"));
+        horaSimulada.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        horaSimulada.setPreferredSize(new Dimension(80, 28));
+        gbc.gridx = 3;
+        panelSimulacion.add(horaSimulada, gbc);
+
+        btnBorrarSimulados = new JButton("Borrar registros simulados");
+        btnBorrarSimulados.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        btnBorrarSimulados.setFocusPainted(false);
+        btnBorrarSimulados.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btnBorrarSimulados.setToolTipText("Elimina solo los registros marcados como [SIMULADO]");
+        gbc.gridx = 4; gbc.weightx = 1; gbc.anchor = GridBagConstraints.EAST;
+        panelSimulacion.add(btnBorrarSimulados, gbc);
+
+        JLabel lblNota = new JLabel("Se aplican las mismas reglas de horario, tardanza y horas extra. "
+                + "Los registros quedan marcados como [SIMULADO].");
+        lblNota.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+        lblNota.setForeground(new Color(110, 110, 110));
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 5; gbc.weightx = 0; gbc.anchor = GridBagConstraints.WEST;
+        panelSimulacion.add(lblNota, gbc);
+
+        chkSimular.addActionListener(e -> actualizarModoSimulacion());
+        btnBorrarSimulados.addActionListener(e -> borrarRegistrosSimulados());
+        actualizarModoSimulacion();
+        return panelSimulacion;
+    }
+
+    private boolean simulacionActiva() {
+        return permiteSimulacion && chkSimular != null && chkSimular.isSelected();
+    }
+
+    private void actualizarModoSimulacion() {
+        boolean activa = simulacionActiva();
+        fechaSimulada.setEnabled(activa);
+        horaSimulada.setEnabled(activa);
+        panelSuperior.setBackground(activa ? COLOR_SIMULACION : COLOR_TITULO);
+        lblTitulo.setText(activa ? "REGISTRO DE ASISTENCIA — SIMULACIÓN" : "REGISTRO DE ASISTENCIA");
+        panelSimulacion.setBackground(activa ? new Color(255, 248, 225) : Color.WHITE);
+        chkSimular.setBackground(panelSimulacion.getBackground());
+        int cantidad = controlador.contarRegistrosSimulados();
+        btnBorrarSimulados.setText("Borrar registros simulados (" + cantidad + ")");
+        btnBorrarSimulados.setEnabled(cantidad > 0);
+    }
+
+    // Fecha y hora elegidas en el modo simulación, o null si faltan datos
+    private LocalDateTime momentoSimulado() {
+        java.util.Date fecha = fechaSimulada.getDate();
+        if (fecha == null) {
+            JOptionPane.showMessageDialog(this,
+                "Seleccione la fecha a simular",
+                "Fecha requerida",
+                JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+        LocalDate dia = fecha.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+        java.util.Date hora = (java.util.Date) horaSimulada.getValue();
+        LocalTime t = hora.toInstant().atZone(ZoneId.systemDefault()).toLocalTime().withSecond(0).withNano(0);
+        return LocalDateTime.of(dia, t);
+    }
+
+    private void borrarRegistrosSimulados() {
+        int cantidad = controlador.contarRegistrosSimulados();
+        if (cantidad == 0) {
+            actualizarModoSimulacion();
+            return;
+        }
+        int r = JOptionPane.showConfirmDialog(this,
+            "Se eliminarán " + cantidad + " registro(s) de asistencia marcados como [SIMULADO].\n"
+            + "Los registros reales no se modifican.\n\n¿Desea continuar?",
+            "Borrar registros simulados",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE);
+        if (r == JOptionPane.YES_OPTION) {
+            int borrados = controlador.eliminarRegistrosSimulados();
+            JOptionPane.showMessageDialog(this,
+                "Se eliminaron " + borrados + " registro(s) simulados.",
+                "Listo",
+                JOptionPane.INFORMATION_MESSAGE);
+        }
+        actualizarModoSimulacion();
+    }
+
     private void buscarPersonal() {
         String dni = txtDni.getText().trim();
         
@@ -298,9 +449,19 @@ public class RegistroAsistencia extends JFrame {
             return;
         }
         
-        boolean resultado = controlador.registrarEntrada(personalSeleccionado.getDni());
+        boolean resultado;
+        if (simulacionActiva()) {
+            LocalDateTime momento = momentoSimulado();
+            if (momento == null) {
+                return;
+            }
+            resultado = controlador.registrarEntrada(personalSeleccionado.getDni(), momento, true);
+            actualizarModoSimulacion();
+        } else {
+            resultado = controlador.registrarEntrada(personalSeleccionado.getDni());
+        }
         
-        if (resultado) {
+        if (resultado && !simulacionActiva()) {
             limpiarCampos();
         }
     }
@@ -314,9 +475,19 @@ public class RegistroAsistencia extends JFrame {
             return;
         }
         
-        boolean resultado = controlador.registrarSalida(personalSeleccionado.getDni());
+        boolean resultado;
+        if (simulacionActiva()) {
+            LocalDateTime momento = momentoSimulado();
+            if (momento == null) {
+                return;
+            }
+            resultado = controlador.registrarSalida(personalSeleccionado.getDni(), momento, true);
+            actualizarModoSimulacion();
+        } else {
+            resultado = controlador.registrarSalida(personalSeleccionado.getDni());
+        }
         
-        if (resultado) {
+        if (resultado && !simulacionActiva()) {
             limpiarCampos();
         }
     }
@@ -337,7 +508,7 @@ public class RegistroAsistencia extends JFrame {
         this.setTitle("Registro de Asistencia");
         this.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         this.setContentPane(panelPrincipal);
-        this.setSize(700, 550);
+        this.setSize(760, permiteSimulacion ? 690 : 550);
         this.setLocationRelativeTo(null);
         this.setResizable(false);
     }

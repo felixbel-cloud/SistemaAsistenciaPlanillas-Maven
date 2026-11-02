@@ -8,6 +8,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JTable;
 import javax.swing.table.DefaultTableModel;
 
+import modelo.conexion.ConexionDB;
 import modelo.dao.AsistenciaDAO;
 import modelo.dao.PersonalDAO;
 import modelo.dao.PlanillaDAO;
@@ -35,6 +36,15 @@ public class ControladorPlanilla {
     // Generar planilla del mes
     public boolean generarPlanilla(String periodo, int idUsuario) {
         try {
+            if (!validarPeriodo(periodo)) {
+                JOptionPane.showMessageDialog(null,
+                        "El periodo " + periodo + " no es válido.\n"
+                        + "Use el formato AAAA-MM, desde 2020-01 hasta el mes actual.",
+                        "Periodo inválido",
+                        JOptionPane.WARNING_MESSAGE);
+                return false;
+            }
+
             // Verificar si ya existe planilla para el periodo
             if (planillaDAO.existePlanillaPeriodo(periodo)) {
                 JOptionPane.showMessageDialog(null,
@@ -42,6 +52,23 @@ public class ControladorPlanilla {
                         "Planilla existente",
                         JOptionPane.WARNING_MESSAGE);
                 return false;
+            }
+
+            // Registros de prueba (modo simulación) dentro del periodo
+            int simulados = asistenciaDAO.contarSimuladosEnPeriodo(periodo, ControladorAsistencia.PREFIJO_SIMULADO);
+            if (simulados > 0) {
+                Object[] opciones = {"Cancelar", "Generar de todos modos (demostración)"};
+                int r = JOptionPane.showOptionDialog(null,
+                        "El periodo " + periodo + " tiene " + simulados + " registro(s) de asistencia SIMULADOS.\n"
+                        + "Si genera la planilla, se pagarán como si fueran reales.\n\n"
+                        + "Para una planilla real, primero bórrelos en Registrar Asistencia > \"Borrar registros simulados\".",
+                        "Hay registros simulados",
+                        JOptionPane.DEFAULT_OPTION,
+                        JOptionPane.WARNING_MESSAGE,
+                        null, opciones, opciones[0]);
+                if (r != 1) {
+                    return false;
+                }
             }
 
             // Obtener todo el personal activo
@@ -67,39 +94,50 @@ public class ControladorPlanilla {
             // las faltas de los bloques de horario del periodo que no tuvieron marcación
             marcarFaltasDelPeriodo(periodo);
 
-            int idPlanilla = planillaDAO.crearPlanilla(planilla);
+            // La planilla y todos sus detalles se guardan en UNA transacción:
+            // si algo falla a la mitad, no queda una planilla incompleta.
+            double totalGeneral = 0.0;
+            int empleados = 0;
+            try {
+                ConexionDB.iniciarTransaccion();
 
-            if (idPlanilla == -1) {
+                int idPlanilla = planillaDAO.crearPlanilla(planilla);
+                if (idPlanilla == -1) {
+                    throw new java.sql.SQLException("No se pudo crear el registro de la planilla.");
+                }
+
+                for (Personal personal : listaPersonal) {
+                    if (!trabajaEnPeriodo(personal, periodo)) {
+                        continue; // contratado después del periodo
+                    }
+                    DetallePlanilla detalle = calcularDetallePlanilla(idPlanilla, personal, periodo);
+                    if (!planillaDAO.crearDetallePlanilla(detalle)) {
+                        throw new java.sql.SQLException("No se pudo guardar el detalle de " + personal.getNombreCompleto() + ".");
+                    }
+                    totalGeneral += detalle.getSueldoNeto();
+                    empleados++;
+                }
+
+                if (!planillaDAO.actualizarTotalPlanilla(idPlanilla, totalGeneral)) {
+                    throw new java.sql.SQLException("No se pudo actualizar el total de la planilla.");
+                }
+
+                ConexionDB.confirmar();
+            } catch (java.sql.SQLException | RuntimeException e) {
+                ConexionDB.revertir();
                 JOptionPane.showMessageDialog(null,
-                        "Error al crear la planilla",
-                        "Error",
+                        "No se generó la planilla del periodo " + periodo + ".\n"
+                        + "Motivo: " + e.getMessage() + "\n\n"
+                        + "No se guardó ningún dato; puede volver a intentarlo.",
+                        "Error al generar planilla",
                         JOptionPane.ERROR_MESSAGE);
                 return false;
             }
 
-            double totalGeneral = 0.0;
-
-            // Generar detalle para cada personal
-            for (Personal personal : listaPersonal) {
-                DetallePlanilla detalle = calcularDetallePlanilla(
-                        idPlanilla, personal, periodo);
-
-                if (planillaDAO.crearDetallePlanilla(detalle)) {
-                    totalGeneral += detalle.getSueldoNeto();
-                } else {
-                    System.err.println("Error al crear detalle para personal: "
-                            + personal.getNombreCompleto());
-                }
-            }
-
-            // Actualizar total de la planilla
-            planilla.setIdPlanilla(idPlanilla);
-            planilla.setTotalPlanilla(totalGeneral);
-            planillaDAO.actualizarTotalPlanilla(idPlanilla, totalGeneral);
-
             JOptionPane.showMessageDialog(null,
                     "Planilla generada exitosamente\n"
                     + "Periodo: " + periodo + "\n"
+                    + "Personal incluido: " + empleados + "\n"
                     + "Total: S/ " + String.format("%.2f", totalGeneral),
                     "Generación exitosa",
                     JOptionPane.INFORMATION_MESSAGE);
@@ -113,6 +151,33 @@ public class ControladorPlanilla {
                     JOptionPane.ERROR_MESSAGE);
             return false;
         }
+    }
+
+    // El personal contratado DESPUÉS del último día del periodo no entra en esa planilla
+    private static boolean trabajaEnPeriodo(Personal personal, String periodo) {
+        if (personal.getFechaContratacion() == null) {
+            return true;
+        }
+        java.time.YearMonth ym = java.time.YearMonth.parse(periodo);
+        java.time.LocalDate contratacion = new java.sql.Date(personal.getFechaContratacion().getTime()).toLocalDate();
+        return !contratacion.isAfter(ym.atEndOfMonth());
+    }
+
+    // Días (sobre 30) que le corresponden al administrativo en el periodo según su fecha de contratación.
+    // Contratado antes del mes: 30. Contratado el día 16: 15 días (30 - 16 + 1). Después del mes: 0.
+    static int diasComputablesPorContratacion(Date fechaContratacion, String periodo) {
+        if (fechaContratacion == null || periodo == null) {
+            return DIAS_MES;
+        }
+        java.time.YearMonth ym = java.time.YearMonth.parse(periodo);
+        java.time.LocalDate c = new java.sql.Date(fechaContratacion.getTime()).toLocalDate();
+        if (c.isBefore(ym.atDay(1))) {
+            return DIAS_MES;
+        }
+        if (c.isAfter(ym.atEndOfMonth())) {
+            return 0;
+        }
+        return Math.max(0, Math.min(DIAS_MES, DIAS_MES - c.getDayOfMonth() + 1));
     }
 
     // Marca automáticamente como AUSENTE los bloques de horario vencidos del periodo
@@ -138,18 +203,47 @@ public class ControladorPlanilla {
         }
     }
 
+    // Obtiene los días laborables por semana según el horario del personal (por defecto 6)
+    public static int obtenerDiasJornadaSemanal(Personal personal) {
+        if (personal == null || personal.getIdPersonal() <= 0) {
+            return 6;
+        }
+        try {
+            modelo.dao.HorarioPersonalDAO dao = new modelo.dao.HorarioPersonalDAO();
+            List<modelo.entidades.HorarioPersonal> horarios = dao.listarPorPersonal(personal.getIdPersonal());
+            if (horarios != null && !horarios.isEmpty()) {
+                java.util.Set<String> dias = new java.util.HashSet<>();
+                for (modelo.entidades.HorarioPersonal h : horarios) {
+                    if (h != null && h.isActivo() && h.getDiaSemana() != null) {
+                        dias.add(h.getDiaSemana().trim().toUpperCase());
+                    }
+                }
+                if (!dias.isEmpty()) {
+                    return Math.max(1, Math.min(6, dias.size()));
+                }
+            }
+        } catch (Exception e) {
+            // Silencioso: en entornos de prueba o sin conexión se usa el régimen general
+        }
+        return 6;
+    }
+
     // Calcular detalle de planilla para un personal
     private DetallePlanilla calcularDetallePlanilla(int idPlanilla, Personal personal, String periodo) {
         List<Asistencia> asistencias = asistenciaDAO.listarPorPersonalYMes(
                 personal.getIdPersonal(), periodo);
 
-        DetallePlanilla detalle = calcularDetallePorTipo(personal, asistencias);
+        DetallePlanilla detalle = calcularDetallePorTipo(personal, asistencias, periodo);
         detalle.setIdPlanilla(idPlanilla);
         detalle.setIdPersonal(personal.getIdPersonal());
         return detalle;
     }
 
     static DetallePlanilla calcularDetallePorTipo(Personal personal, List<Asistencia> asistencias) {
+        return calcularDetallePorTipo(personal, asistencias, null);
+    }
+
+    static DetallePlanilla calcularDetallePorTipo(Personal personal, List<Asistencia> asistencias, String periodo) {
         DetallePlanilla detalle = new DetallePlanilla();
         if (personal == null) {
             return detalle;
@@ -190,36 +284,41 @@ public class ControladorPlanilla {
         detalle.setDiasAusencia(diasAusencia);
         detalle.setMinutosTardanza(totalMinutosTardanza);
 
-        String tipoPersonal = personal.getTipoPersonal() == null ? "" : personal.getTipoPersonal().trim().toUpperCase();
-
-        if ("DOCENTE".equals(tipoPersonal)) {
-            double salarioPorHora = Math.max(0.0, personal.getSalarioBase());
-            double horasExtras = totalMinutosExtras / 60.0;
-            double montoHorasExtras = horasExtras * salarioPorHora * TARIFA_HORA_EXTRA;
-            double descuentoAusencias = diasAusencia * salarioPorHora * HORAS_DIA;
-            double descuentoTardanzas = (totalMinutosTardanza / 60.0) * salarioPorHora;
-            double totalIngresos = (totalHorasTrabajadas > 0 ? totalHorasTrabajadas * salarioPorHora : 0.0) + montoHorasExtras;
-            double totalDescuentos = descuentoAusencias + descuentoTardanzas;
-            double sueldoNeto = totalIngresos - totalDescuentos;
-
-            detalle.setHorasExtras(horasExtras);
-            detalle.setMontoHorasExtras(montoHorasExtras);
-            detalle.setDescuentoAusencias(descuentoAusencias);
-            detalle.setDescuentoTardanzas(descuentoTardanzas);
-            detalle.setTotalIngresos(totalIngresos);
-            detalle.setTotalDescuentos(totalDescuentos);
-            detalle.setSueldoNeto(Math.max(0, sueldoNeto));
-            return detalle;
-        }
-
         double salarioBase = Math.max(0.0, personal.getSalarioBase());
         double salarioDiario = salarioBase / DIAS_MES;
         double salarioPorHora = salarioBase / DIAS_MES / HORAS_DIA;
         double horasExtras = totalMinutosExtras / 60.0;
         double montoHorasExtras = horasExtras * salarioPorHora * TARIFA_HORA_EXTRA;
-        double descuentoAusencias = diasAusencia * salarioDiario;
         double descuentoTardanzas = (totalMinutosTardanza / 60.0) * salarioPorHora;
-        double totalIngresos = salarioBase + montoHorasExtras;
+        int diasComputables = diasComputablesPorContratacion(personal.getFechaContratacion(), periodo);
+        double sueldoDelPeriodo = salarioBase * diasComputables / DIAS_MES;
+
+        int diasJornada = obtenerDiasJornadaSemanal(personal);
+        double factorDsr = 1.0 / diasJornada;
+        double costoDiaConDsr = salarioDiario * (1.0 + factorDsr);
+
+        double descuentoAusencias;
+        if (diasAusencia == 0) {
+            descuentoAusencias = 0.0;
+        } else {
+            double descuentoFaltas = diasAusencia * costoDiaConDsr;
+            double sueldoTrasFaltas = Math.max(0.0, sueldoDelPeriodo - descuentoFaltas);
+
+            double maximoGanadoPorTrabajo = diasTrabajados * costoDiaConDsr;
+
+            double sueldoBaseGanado;
+            if (diasTrabajados == 0) {
+                sueldoBaseGanado = 0.0;
+            } else if (sueldoTrasFaltas > maximoGanadoPorTrabajo && diasAusencia >= (diasJornada * 2)) {
+                sueldoBaseGanado = maximoGanadoPorTrabajo;
+            } else {
+                sueldoBaseGanado = sueldoTrasFaltas;
+            }
+
+            descuentoAusencias = Math.max(0.0, sueldoDelPeriodo - sueldoBaseGanado);
+        }
+
+        double totalIngresos = sueldoDelPeriodo + montoHorasExtras;
         double totalDescuentos = descuentoAusencias + descuentoTardanzas;
         double sueldoNeto = totalIngresos - totalDescuentos;
 
@@ -303,6 +402,43 @@ public class ControladorPlanilla {
         return planillaDAO.obtenerPlanillaPorId(idPlanilla);
     }
 
+    // Verificar si existe planilla para el periodo
+    public boolean existePlanilla(String periodo) {
+        return planillaDAO.existePlanillaPeriodo(periodo);
+    }
+
+    // Obtener planilla por periodo
+    public Planilla obtenerPlanillaPorPeriodo(String periodo) {
+        return planillaDAO.obtenerPlanillaPorPeriodo(periodo);
+    }
+
+    // Eliminar planilla por ID
+    public boolean eliminarPlanilla(int idPlanilla) {
+        return planillaDAO.eliminarPlanilla(idPlanilla);
+    }
+
+    // Regenerar planilla (elimina la anterior no pagada y recalcula)
+    public boolean regenerarPlanilla(String periodo, int idUsuario) {
+        Planilla existente = planillaDAO.obtenerPlanillaPorPeriodo(periodo);
+        if (existente != null) {
+            if ("PAGADA".equalsIgnoreCase(existente.getEstado())) {
+                JOptionPane.showMessageDialog(null,
+                        "No se puede regenerar la planilla del periodo " + periodo + " porque ya está en estado PAGADA.",
+                        "Planilla Pagada",
+                        JOptionPane.WARNING_MESSAGE);
+                return false;
+            }
+            if (!planillaDAO.eliminarPlanilla(existente.getIdPlanilla())) {
+                JOptionPane.showMessageDialog(null,
+                        "No se pudo eliminar la planilla previa para regenerar.",
+                        "Error al regenerar",
+                        JOptionPane.ERROR_MESSAGE);
+                return false;
+            }
+        }
+        return generarPlanilla(periodo, idUsuario);
+    }
+
     // Validar periodo (formato YYYY-MM)
     public boolean validarPeriodo(String periodo) {
         if (periodo == null || periodo.length() != 7) {
@@ -318,7 +454,11 @@ public class ControladorPlanilla {
             int anio = Integer.parseInt(partes[0]);
             int mes = Integer.parseInt(partes[1]);
 
-            return anio >= 2020 && anio <= 2030 && mes >= 1 && mes <= 12;
+            if (anio < 2020 || mes < 1 || mes > 12) {
+                return false;
+            }
+            // No se puede generar la planilla de un mes que todavía no empieza
+            return !java.time.YearMonth.of(anio, mes).isAfter(java.time.YearMonth.now());
         } catch (NumberFormatException e) {
             return false;
         }

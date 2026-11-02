@@ -31,6 +31,9 @@ public class ReporteHorasExtras extends JFrame {
     private JButton btnExportar;
     private JButton btnExportarPdf;
     private JButton btnCerrar;
+    private JButton btnPdfIndividual;
+    private Date ultimoInicio;
+    private Date ultimoFin;
     
     private JTable tablaHorasExtras;
     private JScrollPane scrollPane;
@@ -150,9 +153,13 @@ public class ReporteHorasExtras extends JFrame {
         btnCerrar.setPreferredSize(new Dimension(100, 35));
         btnCerrar.setCursor(new Cursor(Cursor.HAND_CURSOR));
         
+        btnPdfIndividual = ExportacionIndividual.crearBoton();
+        panelBotones.add(btnPdfIndividual);
         panelBotones.add(btnExportar);
         panelBotones.add(btnExportarPdf);
         panelBotones.add(btnCerrar);
+        ExportacionIndividual.instalar(tablaHorasExtras, btnPdfIndividual,
+                "Exportar PDF de esta persona", this::exportarIndividual);
         
         // Agregar paneles
         JPanel panelNorte = new JPanel(new BorderLayout());
@@ -224,6 +231,8 @@ public class ReporteHorasExtras extends JFrame {
         }
         
         controlador.generarReporteHorasExtras(tablaHorasExtras, fechaInicio, fechaFin);
+        ultimoInicio = fechaInicio;
+        ultimoFin = fechaFin;
         
         if (tablaHorasExtras.getRowCount() == 0) {
             JOptionPane.showMessageDialog(this,
@@ -242,7 +251,17 @@ public class ReporteHorasExtras extends JFrame {
             return;
         }
         
-        util.ExportadorReportes.exportarAExcel(tablaHorasExtras, "Reporte_HorasExtras");
+        util.ExportadorReportes.exportarAExcel(tablaHorasExtras, "Reporte de Horas Extras", util.ExportadorReportes.describirPeriodo(dateInicio.getDate(), dateFin.getDate()), "Reporte_HorasExtras");
+    }
+
+    private void exportarIndividual(int fila) {
+        if (ultimoInicio == null) {
+            return;
+        }
+        util.ExportadorReportes.ReporteIndividual r = controlador.individualHorasExtras(tablaHorasExtras, fila,
+                ultimoInicio, ultimoFin, util.ExportadorReportes.describirPeriodo(ultimoInicio, ultimoFin));
+        util.ExportadorReportes.exportarAPDFIndividual(r,
+                ExportacionIndividual.nombreArchivo("Horas_Extras", r.persona.get("Nombre")));
     }
 
     private void exportarReportePDF() {
@@ -254,7 +273,7 @@ public class ReporteHorasExtras extends JFrame {
             return;
         }
         
-        util.ExportadorReportes.exportarAPDF(tablaHorasExtras, "Reporte de Horas Extras", "Reporte_HorasExtras");
+        util.ExportadorReportes.exportarAPDF(tablaHorasExtras, "Reporte de Horas Extras", util.ExportadorReportes.describirPeriodo(dateInicio.getDate(), dateFin.getDate()), "Reporte_HorasExtras");
     }
     
     private void configurarVentana() {

@@ -105,9 +105,9 @@ public class Validaciones {
             int anio = Integer.parseInt(partes[0]);
             int mes = Integer.parseInt(partes[1]);
             
-            if (anio < 2020 || anio > 2030 || mes < 1 || mes > 12) {
+            if (anio < 2020 || anio > 2100 || mes < 1 || mes > 12) {
                 JOptionPane.showMessageDialog(null,
-                    "El periodo debe estar entre 2020-01 y 2030-12",
+                    "El periodo debe tener un año desde 2020 y un mes entre 01 y 12",
                     "Periodo inválido",
                     JOptionPane.ERROR_MESSAGE);
                 return false;

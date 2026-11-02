@@ -27,6 +27,7 @@ public class MenuPrincipal extends JFrame {
     private JMenuItem itemReporteHorasExtras;
     private JMenuItem itemGestionPersonal;
     private JMenuItem itemGestionHorarios;
+    private JMenuItem itemGestionFeriados;
     private JMenuItem itemGestionUsuarios;
     private JMenuItem itemCerrarSesion;
     private JMenuItem itemSalir;
@@ -96,6 +97,35 @@ public class MenuPrincipal extends JFrame {
         }
     }
 
+    static boolean puedeMostrarTarjeta(int idRol, String textoBoton) {
+        switch (textoBoton) {
+            case "Registrar Asistencia":
+                return puedeAcceder(idRol, "REGISTRO_ASISTENCIA");
+            case "Consultar Asistencia":
+                return puedeAcceder(idRol, "CONSULTA_ASISTENCIA");
+            case "Gestión de Planillas":
+            case "Generar Planilla":
+            case "Consultar Planilla":
+                return puedeAcceder(idRol, "GENERAR_PLANILLA") || puedeAcceder(idRol, "CONSULTAR_PLANILLA");
+            case "Gestión Personal":
+                return puedeAcceder(idRol, "GESTION_PERSONAL");
+            case "Gestión de Horarios":
+                return puedeAcceder(idRol, "GESTION_HORARIOS");
+            case "Reportes":
+            case "Reporte de Tardanzas":
+            case "Reporte de Horas Extras":
+                return puedeAcceder(idRol, "REPORTE_ASISTENCIA")
+                        || puedeAcceder(idRol, "REPORTE_TARDANZAS")
+                        || puedeAcceder(idRol, "REPORTE_HORAS_EXTRAS");
+            case "Gestión de Feriados":
+                return puedeAcceder(idRol, "GESTION_HORARIOS");
+            case "Gestión de Usuarios":
+                return puedeAcceder(idRol, "GESTION_USUARIOS");
+            default:
+                return false;
+        }
+    }
+
     private void aplicarPermisosPorRol() {
         itemRegistrarAsistencia.setVisible(puedeAcceder(usuarioActual.getIdRol(), "REGISTRO_ASISTENCIA"));
         itemRegistrarAsistencia.setEnabled(puedeAcceder(usuarioActual.getIdRol(), "REGISTRO_ASISTENCIA"));
@@ -115,6 +145,8 @@ public class MenuPrincipal extends JFrame {
         itemGestionPersonal.setEnabled(puedeAcceder(usuarioActual.getIdRol(), "GESTION_PERSONAL"));
         itemGestionHorarios.setVisible(puedeAcceder(usuarioActual.getIdRol(), "GESTION_HORARIOS"));
         itemGestionHorarios.setEnabled(puedeAcceder(usuarioActual.getIdRol(), "GESTION_HORARIOS"));
+        itemGestionFeriados.setVisible(puedeAcceder(usuarioActual.getIdRol(), "GESTION_HORARIOS"));
+        itemGestionFeriados.setEnabled(puedeAcceder(usuarioActual.getIdRol(), "GESTION_HORARIOS"));
         itemGestionUsuarios.setVisible(puedeAcceder(usuarioActual.getIdRol(), "GESTION_USUARIOS"));
         itemGestionUsuarios.setEnabled(puedeAcceder(usuarioActual.getIdRol(), "GESTION_USUARIOS"));
 
@@ -169,18 +201,65 @@ public class MenuPrincipal extends JFrame {
         panelBienvenida.add(Box.createRigidArea(new Dimension(0, 5)));
         panelBienvenida.add(lblFecha);
         
-        // Panel de accesos rápidos
-        panelAccesos = new JPanel(new GridLayout(2, 3, 20, 20));
-        panelAccesos.setBackground(new Color(236, 240, 241));
-        panelAccesos.setBorder(BorderFactory.createEmptyBorder(30, 30, 30, 30));
-        
-        // Botones de acceso rápido
-        agregarBotonAcceso(panelAccesos, "Registrar Asistencia", "👤", obtenerColorPorModulo("Registrar Asistencia"));
-        agregarBotonAcceso(panelAccesos, "Consultar Asistencia", "📋", obtenerColorPorModulo("Consultar Asistencia"));
-        agregarBotonAcceso(panelAccesos, "Generar Planilla", "💰", obtenerColorPorModulo("Generar Planilla"));
-        agregarBotonAcceso(panelAccesos, "Reportes", "📊", obtenerColorPorModulo("Reportes"));
-        agregarBotonAcceso(panelAccesos, "Gestión Personal", "👥", obtenerColorPorModulo("Gestión Personal"));
-        agregarBotonAcceso(panelAccesos, "Gestión de Horarios", "📅", obtenerColorPorModulo("Gestión de Horarios"));
+        // Panel de accesos rápidos adaptado a los permisos del rol
+        java.util.List<String[]> tarjetasDisponibles = new java.util.ArrayList<>();
+        tarjetasDisponibles.add(new String[]{"Registrar Asistencia", "👤"});
+        tarjetasDisponibles.add(new String[]{"Consultar Asistencia", "📋"});
+        tarjetasDisponibles.add(new String[]{"Gestión de Planillas", "💰"});
+        tarjetasDisponibles.add(new String[]{"Gestión Personal", "👥"});
+        tarjetasDisponibles.add(new String[]{"Gestión de Horarios", "📅"});
+        tarjetasDisponibles.add(new String[]{"Reportes", "📊"});
+
+        int idRol = (usuarioActual != null) ? usuarioActual.getIdRol() : 1;
+        java.util.List<String[]> tarjetasRol = new java.util.ArrayList<>();
+        for (String[] t : tarjetasDisponibles) {
+            if (puedeMostrarTarjeta(idRol, t[0])) {
+                tarjetasRol.add(t);
+            }
+        }
+
+        if (tarjetasRol.size() == 1) {
+            panelAccesos = new JPanel(new BorderLayout());
+            panelAccesos.setBackground(new Color(236, 240, 241));
+            panelAccesos.setBorder(BorderFactory.createEmptyBorder(40, 80, 40, 80));
+
+            String[] t = tarjetasRol.get(0);
+            JButton boton = crearBotonAccesoPrincipal(t[0], t[1], obtenerColorPorModulo(t[0]));
+            panelAccesos.add(boton, BorderLayout.CENTER);
+        } else if (tarjetasRol.size() == 5) {
+            // Distribución equilibrada para 5 tarjetas: 3 arriba y 2 abajo,
+            // llenando todo el ancho sin dejar ningún hueco vacío.
+            panelAccesos = new JPanel(new GridLayout(2, 1, 15, 15));
+            panelAccesos.setBackground(new Color(236, 240, 241));
+            panelAccesos.setBorder(BorderFactory.createEmptyBorder(25, 25, 25, 25));
+
+            JPanel fila1 = new JPanel(new GridLayout(1, 3, 15, 15));
+            fila1.setBackground(new Color(236, 240, 241));
+            for (int i = 0; i < 3; i++) {
+                String[] t = tarjetasRol.get(i);
+                agregarBotonAcceso(fila1, t[0], t[1], obtenerColorPorModulo(t[0]));
+            }
+
+            JPanel fila2 = new JPanel(new GridLayout(1, 2, 15, 15));
+            fila2.setBackground(new Color(236, 240, 241));
+            for (int i = 3; i < 5; i++) {
+                String[] t = tarjetasRol.get(i);
+                agregarBotonAcceso(fila2, t[0], t[1], obtenerColorPorModulo(t[0]));
+            }
+
+            panelAccesos.add(fila1);
+            panelAccesos.add(fila2);
+        } else {
+            int cols = (tarjetasRol.size() <= 4) ? 2 : 3;
+            int filas = (int) Math.ceil((double) tarjetasRol.size() / cols);
+            panelAccesos = new JPanel(new GridLayout(filas, cols, 15, 15));
+            panelAccesos.setBackground(new Color(236, 240, 241));
+            panelAccesos.setBorder(BorderFactory.createEmptyBorder(25, 25, 25, 25));
+
+            for (String[] t : tarjetasRol) {
+                agregarBotonAcceso(panelAccesos, t[0], t[1], obtenerColorPorModulo(t[0]));
+            }
+        }
         
         panelPrincipal.add(panelBienvenida, BorderLayout.NORTH);
         panelPrincipal.add(panelAccesos, BorderLayout.CENTER);
@@ -195,10 +274,10 @@ public class MenuPrincipal extends JFrame {
                 return new Color(52, 152, 219);
             case "Consultar Asistencia":
                 return new Color(22, 160, 133);
+            case "Gestión de Planillas":
             case "Generar Planilla":
-                return new Color(155, 89, 182);
             case "Consultar Planilla":
-                return new Color(211, 84, 0);
+                return new Color(155, 89, 182);
             case "Reportes":
                 return new Color(230, 126, 34);
             case "Reporte de Tardanzas":
@@ -209,6 +288,8 @@ public class MenuPrincipal extends JFrame {
                 return new Color(241, 196, 15);
             case "Gestión de Horarios":
                 return new Color(142, 68, 173);
+            case "Gestión de Feriados":
+                return new Color(26, 188, 156);
             case "Gestión de Usuarios":
                 return new Color(52, 73, 94);
             default:
@@ -230,18 +311,37 @@ public class MenuPrincipal extends JFrame {
         }
     }
 
-    private void agregarBotonAcceso(JPanel panel, String texto, String icono, Color color) {
-        JButton boton = new JButton("<html><center><font face='Segoe UI Emoji' size='+1'>" + icono + "</font><br>" + texto + "</center></html>");
-        aplicarEstiloDeBoton(boton, texto, color);
-
+    private JButton crearBotonAccesoPrincipal(String texto, String icono, Color color) {
+        JButton boton = new JButton("<html><center><span style='font-size:42px;'>" + icono + "</span><br><br><span style='font-size:24px; font-weight:bold;'>" + texto + "</span><br><br><span style='font-size:14px; font-weight:normal; color:#1a252f;'>Haga clic aquí para registrar entradas y salidas</span></center></html>");
+        boton.setFont(new Font("Segoe UI", Font.BOLD, 22));
+        boton.setBackground(color);
+        boton.setForeground(Color.BLACK);
+        boton.setFocusPainted(false);
+        boton.setBorderPainted(false);
+        boton.setCursor(new Cursor(Cursor.HAND_CURSOR));
         boton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 abrirVentanaSegunBoton(texto);
             }
         });
+        return boton;
+    }
 
-        panel.add(boton);
+    private JButton crearBotonAcceso(String texto, String icono, Color color) {
+        JButton boton = new JButton("<html><center><font face='Segoe UI Emoji' size='+1'>" + icono + "</font><br>" + texto + "</center></html>");
+        aplicarEstiloDeBoton(boton, texto, color);
+        boton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                abrirVentanaSegunBoton(texto);
+            }
+        });
+        return boton;
+    }
+
+    private void agregarBotonAcceso(JPanel panel, String texto, String icono, Color color) {
+        panel.add(crearBotonAcceso(texto, icono, color));
     }
 
     private void abrirVentanaSegunBoton(String texto) {
@@ -260,19 +360,15 @@ public class MenuPrincipal extends JFrame {
                 }
                 abrirConsultaAsistencia();
                 break;
+            case "Gestión de Planillas":
             case "Generar Planilla":
-                if (!puedeAcceder(usuarioActual.getIdRol(), "GENERAR_PLANILLA")) {
-                    mostrarSinPermiso();
-                    return;
-                }
-                abrirGenerarPlanilla();
-                break;
             case "Consultar Planilla":
-                if (!puedeAcceder(usuarioActual.getIdRol(), "CONSULTAR_PLANILLA")) {
+                if (!puedeAcceder(usuarioActual.getIdRol(), "GENERAR_PLANILLA")
+                        && !puedeAcceder(usuarioActual.getIdRol(), "CONSULTAR_PLANILLA")) {
                     mostrarSinPermiso();
                     return;
                 }
-                abrirConsultaPlanilla();
+                abrirPlanillas();
                 break;
             case "Reportes":
                 if (!puedeAcceder(usuarioActual.getIdRol(), "REPORTE_ASISTENCIA")) {
@@ -308,6 +404,13 @@ public class MenuPrincipal extends JFrame {
                     return;
                 }
                 abrirGestionHorarios();
+                break;
+            case "Gestión de Feriados":
+                if (!puedeAcceder(usuarioActual.getIdRol(), "GESTION_HORARIOS")) {
+                    mostrarSinPermiso();
+                    return;
+                }
+                new GestionFeriados().setVisible(true);
                 break;
             case "Gestión de Usuarios":
                 if (!puedeAcceder(usuarioActual.getIdRol(), "GESTION_USUARIOS")) {
@@ -359,6 +462,8 @@ public class MenuPrincipal extends JFrame {
         itemGestionUsuarios = new JMenuItem("Gestión de Usuarios");
         menuMantenimiento.add(itemGestionPersonal);
         menuMantenimiento.add(itemGestionHorarios);
+        itemGestionFeriados = new JMenuItem("Gestión de Feriados");
+        menuMantenimiento.add(itemGestionFeriados);
         menuMantenimiento.add(itemGestionUsuarios);
         
         // Menú Sistema
@@ -395,6 +500,7 @@ public class MenuPrincipal extends JFrame {
         // Eventos del menú Mantenimiento
         itemGestionPersonal.addActionListener(e -> abrirGestionPersonal());
         itemGestionHorarios.addActionListener(e -> abrirGestionHorarios());
+        itemGestionFeriados.addActionListener(e -> new GestionFeriados().setVisible(true));
         itemGestionUsuarios.addActionListener(e -> abrirGestionUsuarios());
         
         // Eventos del menú Sistema
@@ -403,7 +509,7 @@ public class MenuPrincipal extends JFrame {
     }
     
     private void abrirRegistroAsistencia() {
-        RegistroAsistencia ventana = new RegistroAsistencia();
+        RegistroAsistencia ventana = new RegistroAsistencia(usuarioActual);
         ventana.setVisible(true);
     }
     
@@ -413,12 +519,15 @@ public class MenuPrincipal extends JFrame {
     }
     
     private void abrirGenerarPlanilla() {
-        GenerarPlanilla ventana = new GenerarPlanilla(usuarioActual);
-        ventana.setVisible(true);
+        abrirPlanillas();
     }
     
     private void abrirConsultaPlanilla() {
-        ConsultaPlanilla ventana = new ConsultaPlanilla();
+        abrirPlanillas();
+    }
+
+    private void abrirPlanillas() {
+        ConsultaPlanilla ventana = new ConsultaPlanilla(usuarioActual);
         ventana.setVisible(true);
     }
     

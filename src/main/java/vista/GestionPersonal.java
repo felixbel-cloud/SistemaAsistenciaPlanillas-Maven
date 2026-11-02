@@ -332,11 +332,10 @@ public class GestionPersonal extends JFrame {
     }
 
     private void actualizarCamposSegunTipo() {
-        boolean docente = requierePagoPorHora(cmbTipo.getSelectedItem() == null ? "" : cmbTipo.getSelectedItem().toString());
-        lblSalario.setText(docente ? "Pago por Hora:" : "Monto asignado:");
+        lblSalario.setText("Sueldo mensual:");
         lblSalario.setVisible(true);
         txtSalario.setVisible(true);
-        txtSalario.setToolTipText(docente ? "Monto por hora del docente" : "Monto asignado al personal administrativo");
+        txtSalario.setToolTipText("Sueldo mensual fijo del personal");
     }
 
     private void configurarEventos() {
@@ -681,16 +680,16 @@ public class GestionPersonal extends JFrame {
             return false;
         }
         
-        // Validar monto asociado al tipo de personal
-        String nombreCampoMonto = requierePagoPorHora(cmbTipo.getSelectedItem() == null ? "" : cmbTipo.getSelectedItem().toString())
-                ? "Pago por Hora"
-                : "Monto asignado";
+        // Validar sueldo mensual fijo para todo el personal
+        String nombreCampoMonto = "Sueldo mensual";
         if (!Validaciones.validarCampoVacio(txtSalario, nombreCampoMonto)) {
             return false;
         }
         if (!Validaciones.validarDecimalPositivo(txtSalario.getText().trim(), nombreCampoMonto)) {
             return false;
         }
+
+
         
         // Validar horario de entrada
         if (!Validaciones.validarCampoVacio(txtHorarioEntrada, "Horario de Entrada")) {

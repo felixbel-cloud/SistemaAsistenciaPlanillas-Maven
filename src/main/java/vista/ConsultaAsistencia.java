@@ -31,6 +31,7 @@ public class ConsultaAsistencia extends JFrame {
     private JButton btnExportar;
     private JButton btnExportarPdf;
     private JButton btnCerrar;
+    private JButton btnPdfIndividual;
     
     private JTable tablaAsistencia;
     private JScrollPane scrollPane;
@@ -151,9 +152,13 @@ public class ConsultaAsistencia extends JFrame {
         btnCerrar.setPreferredSize(new Dimension(100, 35));
         btnCerrar.setCursor(new Cursor(Cursor.HAND_CURSOR));
         
+        btnPdfIndividual = ExportacionIndividual.crearBoton();
+        panelBotones.add(btnPdfIndividual);
         panelBotones.add(btnExportar);
         panelBotones.add(btnExportarPdf);
         panelBotones.add(btnCerrar);
+        ExportacionIndividual.instalar(tablaAsistencia, btnPdfIndividual,
+                "Exportar PDF de esta persona", this::exportarIndividual);
         
         // Agregar paneles
         panelPrincipal.add(panelSuperior, BorderLayout.NORTH);
@@ -243,7 +248,14 @@ public class ConsultaAsistencia extends JFrame {
             return;
         }
         
-        util.ExportadorReportes.exportarAExcel(tablaAsistencia, "Reporte_Asistencias");
+        util.ExportadorReportes.exportarAExcel(tablaAsistencia, "Consulta de Asistencias", util.ExportadorReportes.describirPeriodo(dateInicio.getDate(), dateFin.getDate()), "Consulta_Asistencias");
+    }
+
+    private void exportarIndividual(int fila) {
+        util.ExportadorReportes.ReporteIndividual r = new controlador.ControladorReporte().individualAsistencia(
+                tablaAsistencia, fila, "Consulta de Asistencias", util.ExportadorReportes.describirPeriodo(dateInicio.getDate(), dateFin.getDate()));
+        util.ExportadorReportes.exportarAPDFIndividual(r,
+                ExportacionIndividual.nombreArchivo("Asistencias", r.persona.get("Nombre")));
     }
 
     private void exportarAPDF() {
@@ -255,7 +267,7 @@ public class ConsultaAsistencia extends JFrame {
             return;
         }
 
-        util.ExportadorReportes.exportarAPDF(tablaAsistencia, "Reporte de Asistencias", "Reporte_Asistencias");
+        util.ExportadorReportes.exportarAPDF(tablaAsistencia, "Consulta de Asistencias", util.ExportadorReportes.describirPeriodo(dateInicio.getDate(), dateFin.getDate()), "Consulta_Asistencias");
     }
     
     private void configurarVentana() {

@@ -45,4 +45,42 @@ class MenuPrincipalTest {
         assertFalse(MenuPrincipal.esMenuVisibleParaRol(3, "MANTENIMIENTO"));
     }
 
+    @Test
+    void debeMostrarSoloTarjetasPermitidasSegunRol() {
+        String[] tarjetas = {
+            "Registrar Asistencia",
+            "Consultar Asistencia",
+            "Gestión de Planillas",
+            "Gestión Personal",
+            "Gestión de Horarios",
+            "Reportes"
+        };
+
+        // Operador (Rol 3): Solo ve 1 tarjeta (Registrar Asistencia)
+        int conteoOperador = 0;
+        for (String t : tarjetas) {
+            if (MenuPrincipal.puedeMostrarTarjeta(3, t)) conteoOperador++;
+        }
+        assertEquals(1, conteoOperador);
+        assertTrue(MenuPrincipal.puedeMostrarTarjeta(3, "Registrar Asistencia"));
+        assertFalse(MenuPrincipal.puedeMostrarTarjeta(3, "Consultar Asistencia"));
+        assertFalse(MenuPrincipal.puedeMostrarTarjeta(3, "Gestión de Planillas"));
+
+        // RRHH (Rol 2): Ve 5 tarjetas (todo excepto Registrar Asistencia)
+        int conteoRRHH = 0;
+        for (String t : tarjetas) {
+            if (MenuPrincipal.puedeMostrarTarjeta(2, t)) conteoRRHH++;
+        }
+        assertEquals(5, conteoRRHH);
+        assertFalse(MenuPrincipal.puedeMostrarTarjeta(2, "Registrar Asistencia"));
+        assertTrue(MenuPrincipal.puedeMostrarTarjeta(2, "Consultar Asistencia"));
+        assertTrue(MenuPrincipal.puedeMostrarTarjeta(2, "Gestión de Planillas"));
+
+        // Administrador (Rol 1): Ve las 6 tarjetas completas
+        int conteoAdmin = 0;
+        for (String t : tarjetas) {
+            if (MenuPrincipal.puedeMostrarTarjeta(1, t)) conteoAdmin++;
+        }
+        assertEquals(6, conteoAdmin);
+    }
 }

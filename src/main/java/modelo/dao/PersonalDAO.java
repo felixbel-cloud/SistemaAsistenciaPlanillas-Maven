@@ -8,10 +8,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class PersonalDAO {
-    private Connection conexion;
     
     public PersonalDAO() {
-        this.conexion = ConexionDB.getConexion();
     }
     
     // Crear personal
@@ -20,7 +18,7 @@ public class PersonalDAO {
                     "fecha_contratacion, salario_base, horario_entrada, horario_salida, activo) " +
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setString(1, personal.getDni());
             ps.setString(2, personal.getNombres());
             ps.setString(3, personal.getApellidos());
@@ -51,7 +49,7 @@ public class PersonalDAO {
                 ? "SELECT * FROM personal ORDER BY activo DESC, id_personal"
                 : "SELECT * FROM personal WHERE activo = 1 ORDER BY id_personal";
         
-        try (Statement stmt = conexion.createStatement();
+        try (Statement stmt = ConexionDB.obtener().createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             
             while (rs.next()) {
@@ -81,7 +79,7 @@ public class PersonalDAO {
         Personal personal = null;
         String sql = "SELECT * FROM personal WHERE id_personal = ?";
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
 
             try (ResultSet rs = ps.executeQuery()) {
@@ -112,7 +110,7 @@ public class PersonalDAO {
         Personal personal = null;
         String sql = "SELECT * FROM personal WHERE dni = ? AND activo = 1";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setString(1, dni);
             
             try (ResultSet rs = ps.executeQuery()) {
@@ -143,7 +141,7 @@ public class PersonalDAO {
         Personal personal = null;
         String sql = "SELECT * FROM personal WHERE dni = ?";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setString(1, dni);
             
             try (ResultSet rs = ps.executeQuery()) {
@@ -175,7 +173,7 @@ public class PersonalDAO {
                     "cargo = ?, fecha_contratacion = ?, salario_base = ?, horario_entrada = ?, " +
                     "horario_salida = ?, activo = ? WHERE id_personal = ?";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setString(1, personal.getDni());
             ps.setString(2, personal.getNombres());
             ps.setString(3, personal.getApellidos());
@@ -199,7 +197,7 @@ public class PersonalDAO {
     public boolean eliminarPersonal(int idPersonal) {
         String sql = "UPDATE personal SET activo = 0 WHERE id_personal = ?";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
@@ -213,7 +211,7 @@ public class PersonalDAO {
         List<Personal> listaPersonal = new ArrayList<>();
         String sql = "SELECT * FROM personal WHERE tipo_personal = ? AND activo = 1";
         
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setString(1, tipoPersonal);
             
             try (ResultSet rs = ps.executeQuery()) {

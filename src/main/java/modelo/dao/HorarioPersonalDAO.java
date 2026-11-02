@@ -11,10 +11,8 @@ import java.util.List;
 
 public class HorarioPersonalDAO {
     private static final String ORDEN_DIAS = "FIELD(dia_semana, 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO')";
-    private final Connection conexion;
 
     public HorarioPersonalDAO() {
-        conexion = ConexionDB.getConexion();
     }
 
     public List<HorarioPersonal> listarPorPersonal(int idPersonal) {
@@ -31,11 +29,8 @@ public class HorarioPersonalDAO {
         String sql = "SELECT h.* FROM horario_personal h JOIN personal p ON p.id_personal = h.id_personal "
                 + "WHERE h.activo = 1 AND p.activo = 1 ORDER BY p.apellidos, p.nombres, " + ORDEN_DIAS + ", h.hora_inicio";
         List<HorarioPersonal> horarios = new ArrayList<>();
-        if (conexion == null) {
-            return horarios;
-        }
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 horarios.add(mapear(rs));
             }
@@ -48,11 +43,8 @@ public class HorarioPersonalDAO {
     public boolean crear(HorarioPersonal horario) {
         String sql = "INSERT INTO horario_personal (id_personal, dia_semana, hora_inicio, hora_fin, descripcion_bloque, activo) "
                 + "VALUES (?, ?, ?, ?, ?, ?)";
-        if (conexion == null) {
-            return false;
-        }
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, horario.getIdPersonal());
             ps.setString(2, horario.getDiaSemana());
             ps.setTime(3, horario.getHoraInicio());
@@ -69,11 +61,8 @@ public class HorarioPersonalDAO {
     public boolean actualizar(HorarioPersonal horario) {
         String sql = "UPDATE horario_personal SET id_personal = ?, dia_semana = ?, hora_inicio = ?, hora_fin = ?, "
                 + "descripcion_bloque = ? WHERE id_horario = ? AND activo = 1";
-        if (conexion == null) {
-            return false;
-        }
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, horario.getIdPersonal());
             ps.setString(2, horario.getDiaSemana());
             ps.setTime(3, horario.getHoraInicio());
@@ -89,11 +78,8 @@ public class HorarioPersonalDAO {
 
     public boolean desactivar(int idHorario) {
         String sql = "UPDATE horario_personal SET activo = 0 WHERE id_horario = ? AND activo = 1";
-        if (conexion == null) {
-            return false;
-        }
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idHorario);
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
@@ -104,11 +90,8 @@ public class HorarioPersonalDAO {
 
     private List<HorarioPersonal> listar(String sql, int idPersonal, String diaSemana) {
         List<HorarioPersonal> horarios = new ArrayList<>();
-        if (conexion == null) {
-            return horarios;
-        }
 
-        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+        try (PreparedStatement ps = ConexionDB.obtener().prepareStatement(sql)) {
             ps.setInt(1, idPersonal);
             if (diaSemana != null) {
                 ps.setString(2, diaSemana);

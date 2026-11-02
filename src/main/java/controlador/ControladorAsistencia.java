@@ -3,6 +3,10 @@ package controlador;
 
 import java.sql.Time;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
@@ -22,6 +26,18 @@ public class ControladorAsistencia {
 
     // Minutos de tolerancia antes de considerar tardanza
     public static final int TOLERANCIA_MINUTOS = 5;
+
+    // Minutos antes del inicio de un bloque desde los que se permite marcar la entrada
+    public static final int VENTANA_ANTES_MINUTOS = 30;
+
+    // Tiempo después del fin del bloque: si es menor a este mínimo NO cuenta como hora extra
+    public static final int MINIMO_EXTRAS_MINUTOS = 15;
+
+    // Máximo de minutos extra que se reconocen por registro (bloque) al día
+    public static final int TOPE_EXTRAS_MINUTOS = 120;
+
+    // Jornada de referencia para personal SIN horario detallado (8h + 1h refrigerio)
+    public static final int JORNADA_SIN_HORARIO_MINUTOS = 540;
 
     private AsistenciaDAO asistenciaDAO;
     private PersonalDAO personalDAO;
@@ -80,18 +96,91 @@ public class ControladorAsistencia {
         return new java.text.SimpleDateFormat("HH:mm").format(hora);
     }
 
-    // Busca, dentro de los bloques del día, el primero para el que aún no exista un registro de entrada
-    private HorarioPersonal buscarSiguienteBloquePendiente(int idPersonal, Date fecha, List<HorarioPersonal> bloquesDelDia) {
+    // Bloques del día que todavía no tienen ningún registro (ni entrada ni falta)
+    private List<HorarioPersonal> bloquesPendientes(int idPersonal, Date fecha, List<HorarioPersonal> bloquesDelDia) {
+        List<HorarioPersonal> pendientes = new java.util.ArrayList<>();
         for (HorarioPersonal bloque : bloquesDelDia) {
             if (!asistenciaDAO.existeRegistroBloque(idPersonal, fecha, bloque.getIdHorario())) {
+                pendientes.add(bloque);
+            }
+        }
+        return pendientes;
+    }
+
+    private static int minutosDelDia(LocalTime hora) {
+        return hora.getHour() * 60 + hora.getMinute();
+    }
+
+    private static int minutosDelDia(Time hora) {
+        return minutosDelDia(hora.toLocalTime());
+    }
+
+    private static String hhmm(int minutosDelDia) {
+        int m = Math.max(0, minutosDelDia);
+        return String.format("%02d:%02d", m / 60, m % 60);
+    }
+
+    // La entrada a un bloque se puede marcar desde VENTANA_ANTES_MINUTOS antes de su inicio
+    // y hasta antes de su hora de fin.
+    static boolean dentroDeVentanaEntrada(HorarioPersonal bloque, LocalTime ahora) {
+        int desde = Math.max(0, minutosDelDia(bloque.getHoraInicio()) - VENTANA_ANTES_MINUTOS);
+        int hasta = minutosDelDia(bloque.getHoraFin());
+        int actual = minutosDelDia(ahora);
+        return actual >= desde && actual < hasta;
+    }
+
+    // Devuelve el bloque pendiente cuya ventana de entrada contiene la hora actual,
+    // o null si a esta hora no corresponde marcar entrada en ningún bloque.
+    static HorarioPersonal elegirBloqueParaEntrada(List<HorarioPersonal> pendientes, LocalTime ahora) {
+        if (pendientes == null) {
+            return null;
+        }
+        for (HorarioPersonal bloque : pendientes) {
+            if (dentroDeVentanaEntrada(bloque, ahora)) {
                 return bloque;
             }
         }
         return null;
     }
 
-    // Registrar entrada
+    // Mensaje que explica por qué no se puede marcar la entrada a esta hora
+    static String motivoEntradaFueraDeHorario(List<HorarioPersonal> pendientes, LocalTime ahora) {
+        int actual = minutosDelDia(ahora);
+        for (HorarioPersonal bloque : pendientes) {
+            int inicio = minutosDelDia(bloque.getHoraInicio());
+            int desde = Math.max(0, inicio - VENTANA_ANTES_MINUTOS);
+            if (actual < desde) {
+                return "Todavía no puede marcar su entrada.\n"
+                        + "Su horario de hoy empieza a las " + hhmm(inicio)
+                        + " (bloque " + hhmm(inicio) + "-" + hhmm(minutosDelDia(bloque.getHoraFin())) + ").\n"
+                        + "Puede marcar su entrada desde las " + hhmm(desde) + ".";
+            }
+        }
+        StringBuilder bloques = new StringBuilder();
+        for (HorarioPersonal bloque : pendientes) {
+            if (bloques.length() > 0) {
+                bloques.append(" / ");
+            }
+            bloques.append(hhmm(minutosDelDia(bloque.getHoraInicio()))).append("-")
+                   .append(hhmm(minutosDelDia(bloque.getHoraFin())));
+        }
+        return "Su horario de hoy ya terminó (" + bloques + ").\n"
+                + "No se puede registrar la entrada fuera del horario asignado.";
+    }
+
+    // Prefijo con el que se marcan las observaciones de los registros simulados
+    public static final String PREFIJO_SIMULADO = "[SIMULADO] ";
+
+    // Registrar entrada con la fecha y hora actuales del sistema
     public boolean registrarEntrada(String dni) {
+        return registrarEntrada(dni, LocalDateTime.now(), false);
+    }
+
+    // Registrar entrada en un momento dado. Si "simulado" es true, se usa la fecha/hora
+    // indicada (modo demostración) y el registro queda marcado como [SIMULADO].
+    // Se aplican exactamente las mismas reglas de horario que en un registro real.
+    public boolean registrarEntrada(String dni, LocalDateTime momento, boolean simulado) {
+        String sufijoTitulo = simulado ? " (simulación)" : "";
         try {
             // Buscar personal por DNI
             Personal personal = personalDAO.buscarPorDni(dni);
@@ -104,8 +193,8 @@ public class ControladorAsistencia {
                 return false;
             }
 
-            Date fechaActual = new Date();
-            Time horaActual = new Time(System.currentTimeMillis());
+            Date fechaActual = java.sql.Date.valueOf(momento.toLocalDate());
+            Time horaActual = Time.valueOf(momento.toLocalTime().withNano(0));
             String diaSemana = obtenerDiaSemana(fechaActual);
 
             List<HorarioPersonal> bloquesDelDia = horarioPersonalDAO.listarPorPersonalYDia(
@@ -117,8 +206,19 @@ public class ControladorAsistencia {
             asistencia.setHoraEntrada(horaActual);
 
             if (bloquesDelDia.isEmpty()) {
-                // El personal no tiene un horario detallado configurado para hoy.
-                // Se mantiene compatibilidad con el registro simple (sin bloque específico).
+                // Si la persona SÍ tiene horario detallado (en otros días), hoy no le corresponde
+                // trabajar: no se registra nada para evitar pagos fuera de horario.
+                if (!horarioPersonalDAO.listarPorPersonal(personal.getIdPersonal()).isEmpty()) {
+                    JOptionPane.showMessageDialog(null,
+                        personal.getNombreCompleto() + " no tiene horario asignado para hoy (" + diaSemana + ").\n\n"
+                        + "Su horario es: " + obtenerHorarioTexto(personal) + "\n\n"
+                        + "No se registró la entrada.",
+                        "Fuera de horario",
+                        JOptionPane.WARNING_MESSAGE);
+                    return false;
+                }
+                // Personal SIN ningún horario detallado: se mantiene el registro simple
+                // (sin bloque específico), como antes.
                 if (asistenciaDAO.existeRegistroBloque(personal.getIdPersonal(), fechaActual, null)) {
                     JOptionPane.showMessageDialog(null,
                         "El personal ya registró su entrada el día de hoy",
@@ -131,13 +231,25 @@ public class ControladorAsistencia {
                 asistencia.setEstado("PRESENTE");
                 asistencia.setObservaciones("Entrada registrada (sin horario configurado para " + diaSemana + ")");
             } else {
-                HorarioPersonal bloque = buscarSiguienteBloquePendiente(
+                List<HorarioPersonal> pendientes = bloquesPendientes(
                     personal.getIdPersonal(), fechaActual, bloquesDelDia);
 
-                if (bloque == null) {
+                if (pendientes.isEmpty()) {
                     JOptionPane.showMessageDialog(null,
                         "El personal ya registró su entrada en todos los bloques de horario de hoy (" + diaSemana + ")",
                         "Registro duplicado",
+                        JOptionPane.WARNING_MESSAGE);
+                    return false;
+                }
+
+                LocalTime ahora = horaActual.toLocalTime();
+                HorarioPersonal bloque = elegirBloqueParaEntrada(pendientes, ahora);
+
+                if (bloque == null) {
+                    JOptionPane.showMessageDialog(null,
+                        personal.getNombreCompleto() + "\n\n" + motivoEntradaFueraDeHorario(pendientes, ahora)
+                        + "\n\nNo se registró la entrada.",
+                        "Fuera de horario",
                         JOptionPane.WARNING_MESSAGE);
                     return false;
                 }
@@ -153,16 +265,21 @@ public class ControladorAsistencia {
                         + " (" + formatoHora(bloque.getHoraInicio()) + "-" + formatoHora(bloque.getHoraFin()) + ")");
             }
 
+            if (simulado) {
+                asistencia.setObservaciones(PREFIJO_SIMULADO + asistencia.getObservaciones());
+            }
+
             boolean resultado = asistenciaDAO.registrarEntrada(asistencia);
 
             if (resultado) {
                 String mensajeTardanza = asistencia.getMinutosTardanza() > 0
                         ? "\nTardanza: " + formatearTiempo(asistencia.getMinutosTardanza()) : "";
                 JOptionPane.showMessageDialog(null,
-                    "Entrada registrada exitosamente\n" +
+                    "Entrada registrada exitosamente" + sufijoTitulo + "\n" +
                     "Personal: " + personal.getNombreCompleto() + "\n" +
+                    (simulado ? "Fecha: " + formatoFecha(momento.toLocalDate()) + "\n" : "") +
                     "Hora: " + horaActual + mensajeTardanza,
-                    "Registro exitoso",
+                    "Registro exitoso" + sufijoTitulo,
                     JOptionPane.INFORMATION_MESSAGE);
                 return true;
             } else {
@@ -188,19 +305,34 @@ public class ControladorAsistencia {
         return (int) Math.min(1440, tardanza);
     }
 
-    private int calcularMinutosExtras(Time horaProgramadaFin, Time horaSalidaReal) {
-        long diferenciaMin = Duration.between(horaProgramadaFin.toLocalTime(), horaSalidaReal.toLocalTime()).toMinutes();
-        return (int) Math.max(0, Math.min(1440, diferenciaMin));
+    // Calcula el tiempo a pagar de un registro, en minutos.
+    // - Las horas normales se cuentan desde el INICIO del bloque (llegar antes no suma)
+    //   y hasta el FIN del bloque (o la salida, si sale antes).
+    // - Si llega dentro de la tolerancia (hasta TOLERANCIA_MINUTOS después del inicio),
+    //   se considera puntual y se paga desde el inicio del bloque. Si llega más tarde,
+    //   se paga desde su hora real de entrada.
+    // - Lo que pasa del fin del bloque es tiempo extra: si es menor a MINIMO_EXTRAS_MINUTOS
+    //   no cuenta, y nunca se reconoce más de TOPE_EXTRAS_MINUTOS.
+    // Devuelve {minutosPagables (normales + extra reconocidos), minutosExtra reconocidos, minutosExtra reales}
+    static int[] calcularMinutosPagables(int entrada, int salida, int inicioBloque, int finBloque) {
+        int desde = entrada <= inicioBloque + TOLERANCIA_MINUTOS ? inicioBloque : entrada;
+        int hastaNormal = Math.min(salida, finBloque);
+        int normales = Math.max(0, hastaNormal - desde);
+
+        int extraReal = Math.max(0, salida - Math.max(finBloque, desde));
+        int extraReconocido = extraReal < MINIMO_EXTRAS_MINUTOS ? 0 : Math.min(extraReal, TOPE_EXTRAS_MINUTOS);
+
+        return new int[] { normales + extraReconocido, extraReconocido, extraReal };
     }
 
-    private double calcularHorasTrabajadas(Time horaEntrada, Time horaSalida) {
-        long diferenciaMin = Duration.between(horaEntrada.toLocalTime(), horaSalida.toLocalTime()).toMinutes();
-        double horas = diferenciaMin / 60.0;
-        return Math.max(0.0, Math.min(9999.99, Math.round(horas * 100.0) / 100.0));
-    }
-
-    // Registrar salida
+    // Registrar salida con la fecha y hora actuales del sistema
     public boolean registrarSalida(String dni) {
+        return registrarSalida(dni, LocalDateTime.now(), false);
+    }
+
+    // Registrar salida en un momento dado (ver registrarEntrada con simulación)
+    public boolean registrarSalida(String dni, LocalDateTime momento, boolean simulado) {
+        String sufijoTitulo = simulado ? " (simulación)" : "";
         try {
             // Buscar personal por DNI
             Personal personal = personalDAO.buscarPorDni(dni);
@@ -213,63 +345,79 @@ public class ControladorAsistencia {
                 return false;
             }
 
-            Date fechaActual = new Date();
+            Date fechaActual = java.sql.Date.valueOf(momento.toLocalDate());
 
-            // Primero intenta encontrar la asistencia abierta del día actual.
-            // Si por algún motivo la fecha del sistema no coincide con la registrada,
-            // usa la última asistencia abierta del personal como fallback robusto.
+            // Solo se cierra una entrada abierta DE HOY (con hora de entrada y sin salida).
+            // No se usan registros de días anteriores ni faltas (AUSENTE), porque
+            // calcularía horas mezclando fechas o fallaría por no tener hora de entrada.
             Asistencia asistencia = asistenciaDAO.obtenerBloqueAbierto(personal.getIdPersonal(), fechaActual);
-            if (asistencia == null) {
-                asistencia = asistenciaDAO.obtenerUltimaAsistenciaAbierta(personal.getIdPersonal());
-            }
 
-            if (asistencia == null) {
+            if (asistencia == null || asistencia.getHoraEntrada() == null) {
                 JOptionPane.showMessageDialog(null,
-                    "No se encontró un registro de entrada pendiente de salida para hoy",
-                    "Error",
-                    JOptionPane.ERROR_MESSAGE);
+                    "No hay una entrada registrada " + (simulado ? "el " + formatoFecha(momento.toLocalDate()) : "hoy")
+                    + " pendiente de salida para:\n"
+                    + personal.getNombreCompleto() + "\n\n"
+                    + "Primero debe registrar la entrada.",
+                    "Sin entrada registrada",
+                    JOptionPane.WARNING_MESSAGE);
                 return false;
             }
 
-            Time horaSalida = new Time(System.currentTimeMillis());
-            int minutosExtras = 0;
-            double horasTrabajadas = calcularHorasTrabajadas(asistencia.getHoraEntrada(), horaSalida);
+            Time horaSalida = Time.valueOf(momento.toLocalTime().withNano(0));
+            if (minutosDelDia(horaSalida) < minutosDelDia(asistencia.getHoraEntrada())) {
+                JOptionPane.showMessageDialog(null,
+                    "La hora de salida (" + horaSalida + ") no puede ser anterior a la hora de entrada ("
+                    + asistencia.getHoraEntrada() + ").",
+                    "Hora inválida" + sufijoTitulo,
+                    JOptionPane.WARNING_MESSAGE);
+                return false;
+            }
+            int entradaMin = minutosDelDia(asistencia.getHoraEntrada());
+            int salidaMin = minutosDelDia(horaSalida);
+
+            // Por defecto (personal sin horario detallado): jornada de referencia desde la entrada
+            int inicioBloque = entradaMin;
+            int finBloque = entradaMin + JORNADA_SIN_HORARIO_MINUTOS;
 
             if (asistencia.getIdHorario() != null) {
-                // Buscar el bloque de horario programado para calcular horas extra reales
                 String diaSemana = obtenerDiaSemana(fechaActual);
                 List<HorarioPersonal> bloquesDelDia = horarioPersonalDAO.listarPorPersonalYDia(
                         personal.getIdPersonal(), diaSemana);
                 for (HorarioPersonal b : bloquesDelDia) {
                     if (b.getIdHorario() == asistencia.getIdHorario()) {
-                        minutosExtras = calcularMinutosExtras(b.getHoraFin(), horaSalida);
+                        inicioBloque = minutosDelDia(b.getHoraInicio());
+                        finBloque = minutosDelDia(b.getHoraFin());
                         break;
                     }
                 }
-            } else {
-                // Compatibilidad: sin bloque específico, usar 9 horas (8h + 1h refrigerio) como jornada de referencia
-                long minutosTrabajados = Duration.between(
-                        asistencia.getHoraEntrada().toLocalTime(),
-                        horaSalida.toLocalTime()).toMinutes();
-                minutosExtras = (int) Math.max(0, Math.min(1440, minutosTrabajados - 540));
+            }
+
+            int[] tiempos = calcularMinutosPagables(entradaMin, salidaMin, inicioBloque, finBloque);
+            int minutosExtras = tiempos[1];
+            int extraReal = tiempos[2];
+            double horasTrabajadas = Math.round(tiempos[0] / 60.0 * 100.0) / 100.0;
+
+            String notaExtras = "";
+            if (extraReal > 0 && extraReal < MINIMO_EXTRAS_MINUTOS) {
+                notaExtras = "\n(" + extraReal + " min después del horario: menos de "
+                        + MINIMO_EXTRAS_MINUTOS + " min, no cuenta como extra)";
+            } else if (extraReal > TOPE_EXTRAS_MINUTOS) {
+                notaExtras = "\n(Se quedó " + formatearTiempo(extraReal) + " después del horario; se reconoce el tope de "
+                        + formatearTiempo(TOPE_EXTRAS_MINUTOS) + ")";
             }
 
             boolean resultado = asistenciaDAO.registrarSalida(
                 asistencia.getIdAsistencia(), horaSalida, minutosExtras, horasTrabajadas);
 
-            if (!resultado) {
-                resultado = asistenciaDAO.registrarSalidaPorPersonalFecha(
-                    personal.getIdPersonal(), fechaActual, horaSalida, minutosExtras, horasTrabajadas);
-            }
-
             if (resultado) {
                 JOptionPane.showMessageDialog(null,
-                    "Salida registrada exitosamente\n" +
+                    "Salida registrada exitosamente" + sufijoTitulo + "\n" +
                     "Personal: " + personal.getNombreCompleto() + "\n" +
+                    (simulado ? "Fecha: " + formatoFecha(momento.toLocalDate()) + "\n" : "") +
                     "Hora: " + horaSalida + "\n" +
-                    "Horas trabajadas: " + String.format("%.2f", horasTrabajadas) + "\n" +
-                    "Horas extras: " + formatearTiempo(minutosExtras),
-                    "Registro exitoso",
+                    "Horas a pagar: " + String.format("%.2f", horasTrabajadas) + "\n" +
+                    "Horas extras: " + formatearTiempo(minutosExtras) + notaExtras,
+                    "Registro exitoso" + sufijoTitulo,
                     JOptionPane.INFORMATION_MESSAGE);
                 return true;
             } else {
@@ -293,23 +441,46 @@ public class ControladorAsistencia {
     // dentro del rango de fechas indicado que no tengan ningún registro de asistencia.
     // Se debe ejecutar antes de generar reportes/planillas de un periodo ya cerrado.
     public int generarFaltasAutomaticas(Date fechaInicio, Date fechaFin) {
+        return generarFaltasAutomaticas(fechaInicio, fechaFin, LocalDateTime.now());
+    }
+
+    // Versión con "ahora" explícito (permite probar la lógica con una fecha/hora fija).
+    // Solo se marca falta en bloques que YA TERMINARON: días anteriores completos y,
+    // para el día de hoy, únicamente los bloques cuya hora de fin ya pasó.
+    int generarFaltasAutomaticas(Date fechaInicio, Date fechaFin, LocalDateTime ahora) {
         int faltasRegistradas = 0;
         List<Personal> listaPersonal = personalDAO.listarPersonal();
-        Date hoy = new Date();
-        Date limite = fechaFin.after(hoy) ? hoy : fechaFin;
 
-        Calendar cal = Calendar.getInstance();
-        cal.setTime(fechaInicio);
+        LocalDate hoy = ahora.toLocalDate();
+        LocalDate inicio = aLocalDate(fechaInicio);
+        LocalDate fin = aLocalDate(fechaFin);
+        LocalDate limite = fin.isAfter(hoy) ? hoy : fin;
 
-        while (!cal.getTime().after(limite)) {
-            Date fecha = cal.getTime();
+        // En feriados no se marcan faltas
+        java.util.Set<LocalDate> feriados = limite.isBefore(inicio)
+                ? java.util.Collections.emptySet()
+                : new modelo.dao.FeriadoDAO().fechasEntre(inicio, limite);
+
+        for (LocalDate dia = inicio; !dia.isAfter(limite); dia = dia.plusDays(1)) {
+            if (feriados.contains(dia)) {
+                continue;
+            }
+            Date fecha = java.sql.Date.valueOf(dia);
             String diaSemana = obtenerDiaSemana(fecha);
 
             for (Personal personal : listaPersonal) {
+                // No se marcan faltas antes de la fecha de contratación
+                if (personal.getFechaContratacion() != null
+                        && dia.isBefore(aLocalDate(personal.getFechaContratacion()))) {
+                    continue;
+                }
                 List<HorarioPersonal> bloquesDelDia = horarioPersonalDAO.listarPorPersonalYDia(
                         personal.getIdPersonal(), diaSemana);
 
                 for (HorarioPersonal bloque : bloquesDelDia) {
+                    if (!bloqueYaTermino(dia, bloque, ahora)) {
+                        continue; // el bloque aún no termina: todavía puede marcar
+                    }
                     if (!asistenciaDAO.existeRegistroBloque(personal.getIdPersonal(), fecha, bloque.getIdHorario())) {
                         String nombreBloque = (bloque.getDescripcionBloque() != null && !bloque.getDescripcionBloque().isBlank())
                                 ? bloque.getDescripcionBloque() : bloque.getDiaSemana();
@@ -322,10 +493,28 @@ public class ControladorAsistencia {
                 }
             }
 
-            cal.add(Calendar.DAY_OF_MONTH, 1);
         }
 
         return faltasRegistradas;
+    }
+
+    // Un bloque "ya terminó" si es de un día anterior a hoy, o si es de hoy y su hora de fin ya pasó
+    static boolean bloqueYaTermino(LocalDate dia, HorarioPersonal bloque, LocalDateTime ahora) {
+        LocalDate hoy = ahora.toLocalDate();
+        if (dia.isBefore(hoy)) {
+            return true;
+        }
+        if (dia.isAfter(hoy) || bloque.getHoraFin() == null) {
+            return false;
+        }
+        return !ahora.toLocalTime().isBefore(bloque.getHoraFin().toLocalTime());
+    }
+
+    private static LocalDate aLocalDate(Date fecha) {
+        if (fecha instanceof java.sql.Date) {
+            return ((java.sql.Date) fecha).toLocalDate();
+        }
+        return fecha.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
     }
     
     // Cargar asistencias en tabla
@@ -367,6 +556,20 @@ public class ControladorAsistencia {
             return horas + "h";
         }
         return horas + "h " + resto + " min";
+    }
+
+    private static String formatoFecha(LocalDate fecha) {
+        return fecha.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+    }
+
+    // Cantidad de registros creados en modo simulación
+    public int contarRegistrosSimulados() {
+        return asistenciaDAO.contarPorPrefijoObservacion(PREFIJO_SIMULADO);
+    }
+
+    // Elimina todos los registros creados en modo simulación (no toca los registros reales)
+    public int eliminarRegistrosSimulados() {
+        return asistenciaDAO.eliminarPorPrefijoObservacion(PREFIJO_SIMULADO);
     }
 
     // Buscar personal por DNI

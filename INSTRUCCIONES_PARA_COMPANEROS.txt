@@ -1,0 +1,75 @@
+================================================================================
+       SISTEMA DE ASISTENCIAS Y PLANILLAS - INSTITUTO AMERICANO
+================================================================================
+
+Este paquete contiene el código fuente completo del proyecto, el ejecutable (.jar)
+y el respaldo completo de la base de datos MySQL con datos listos para probar.
+
+--------------------------------------------------------------------------------
+1. REQUISITOS DEL SISTEMA
+--------------------------------------------------------------------------------
+- Java JDK 17 o superior (instalado y configurado en el PATH).
+- MySQL Server 8.0 / 9.0 o superior (puerto por defecto: 3306).
+- Apache Maven (opcional, solo si deseas compilar el código desde consola o IDE).
+
+--------------------------------------------------------------------------------
+2. IMPORTAR LA BASE DE DATOS
+--------------------------------------------------------------------------------
+El archivo de base de datos incluido es:
+  -> instituto_americano.sql
+
+Contiene toda la estructura (tablas, vistas, triggers, procedimientos almacenados)
+y los datos de prueba (empleados, horarios, asistencias, planillas, usuarios).
+
+Pasos para restaurar:
+Opción A (MySQL Workbench):
+  1. Abrir MySQL Workbench y conectarse a su instancia local.
+  2. Ir a "Server" -> "Data Import".
+  3. Seleccionar "Import from Self-Contained File" y elegir "instituto_americano.sql".
+  4. Clic en "Start Import".
+
+Opción B (Línea de comandos / CMD / PowerShell):
+  mysql -u root -p < instituto_americano.sql
+
+* Credenciales de la base de datos configuradas en el proyecto (ConexionDB.java):
+  - Servidor: localhost:3306
+  - Base de datos: instituto_americano
+  - Usuario: root
+  - Clave: root
+
+(Nota: Si la contraseña de tu MySQL local es diferente a 'root', puedes cambiarla
+en el archivo: src/main/java/modelo/conexion/ConexionDB.java y recompilar, o crear el usuario root con clave root).
+
+--------------------------------------------------------------------------------
+3. USUARIOS Y CREDENCIALES DEL SISTEMA
+--------------------------------------------------------------------------------
+El sistema cuenta con 3 roles diferenciados:
+
+1. ROL ADMINISTRADOR (Acceso total + Modo simulación de asistencia):
+   - Usuario:    admin
+   - Contraseña: admin123
+
+2. ROL RECURSOS HUMANOS (Gestión de personal, horarios, planillas y reportes):
+   - Usuario:    rrhh
+   - Contraseña: rrhh123
+
+3. ROL OPERADOR (Registro de asistencia / Reloj checador):
+   - Usuario:    operador
+   - Contraseña: oper123
+
+--------------------------------------------------------------------------------
+4. CÓMO EJECUTAR EL SISTEMA
+--------------------------------------------------------------------------------
+Opción A (Ejecución rápida sin compilar):
+  Doble clic en el archivo:
+    target\SistemaAsistenciaPlanillas.jar
+  O desde la terminal:
+    java -jar target\SistemaAsistenciaPlanillas.jar
+
+Opción B (Desde terminal con Maven):
+    mvn compile exec:java
+
+Opción C (Desde IDE: VS Code / IntelliJ / NetBeans / Eclipse):
+  - Abrir la carpeta del proyecto.
+  - Ejecutar la clase principal: src/main/java/main/Main.java
+================================================================================
